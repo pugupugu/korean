@@ -140,3 +140,34 @@ mark{background:none;color:var(--accent);font-weight:700;border-bottom:1.5px sol
   .sent{padding:15px}
   .qbox{padding:22px 18px}
 }
+
+/* quiz extras */
+.qh{font:400 .75em var(--serif);color:var(--accent);margin-left:6px}
+.qsub{display:block;font:400 15px var(--sans);color:var(--sub);margin-top:6px}
+.qbig{display:block;font:700 clamp(26px,5vw,34px) var(--serif);color:var(--accent);margin:8px 0 2px;letter-spacing:.04em}
+.qc{font:400 1.5em var(--serif);color:var(--accent)}
+.opts.long{grid-template-columns:1fr}
+.opts.long .opt{font:400 15.5px/1.6 var(--sans);text-align:left;padding:14px 18px}
+.exp{margin-top:8px;color:var(--sub);line-height:1.65}
+.exp b{color:var(--ink)}
+.tform{display:flex;gap:10px;flex-wrap:wrap}
+.tin{flex:1;min-width:160px;border:1px solid var(--line);background:var(--bg2);color:var(--ink);border-radius:14px;padding:13px 16px;font:600 20px var(--serif);outline:0;transition:.2s}
+.tin:focus{border-color:var(--accent-line)}
+.tin.okin{border-color:var(--ok);color:var(--ok)}.tin.noin{border-color:var(--bad);color:var(--bad)}
+.match{display:grid;grid-template-columns:1fr 1.5fr;gap:12px}
+.mcol{display:grid;gap:8px;align-content:start}
+.mbtn{border:1px solid var(--line);background:var(--bg2);border-radius:12px;padding:12px 14px;font:600 18px var(--serif);text-align:center;transition:.2s;color:var(--ink)}
+.mbtn.sm{font:400 14px/1.5 var(--sans);text-align:left}
+.mbtn:hover{border-color:var(--accent-line)}
+.mbtn.sel{border-color:var(--accent);background:var(--accent-soft);color:var(--accent)}
+.mbtn.ok{background:var(--ok-soft);border-color:var(--ok);color:var(--ok);pointer-events:none}
+.mbtn.no{background:var(--bad-soft);border-color:var(--bad);color:var(--bad)}
+.qhub{max-width:860px;margin:0 auto}
+.kinds{display:grid;grid-template-columns:repeat(auto-fill,minmax(190px,1fr));gap:10px;margin-top:22px}
+.kind{text-align:left;border:1px solid var(--line);background:linear-gradient(180deg,var(--card2),var(--card));border-radius:16px;padding:14px 16px;display:flex;flex-direction:column;gap:2px;transition:.2s}
+.kind b{font:700 17px var(--serif)}
+.kind span{font-size:12.5px;color:var(--sub)}
+.kind:hover{border-color:var(--accent-line)}
+.kind.on{border-color:var(--accent);box-shadow:inset 0 0 0 1px var(--accent);background:var(--accent-soft)}
+.kind.on b{color:var(--accent)}
+@media(max-width:640px){.match{grid-template-columns:1fr}.kinds{grid-template-columns:repeat(2,1fr)}}

@@ -34,30 +34,99 @@ const clearWrong = id => { const s = S(); delete s.wrong[id]; store.set(s); };
 
 /* ── 유틸 ── */
 const shuffle = a => { a = a.slice(); for (let i = a.length - 1; i > 0; i--) { const j = Math.random() * (i + 1) | 0; [a[i], a[j]] = [a[j], a[i]]; } return a; };
+const uniq = a => [...new Set(a)];
+const rnd = a => a[Math.random() * a.length | 0];
 const sentHTML = (t, mode = 'mark') => t.replace(/\[\[(.+?)\]\]/g, (_, w) =>
   mode === 'mark' ? `<mark>${w}</mark>` : `<button class="blank" data-w="${w}" aria-label="빈칸 보기">${w}</button>`);
 const blankText = t => t.replace(/\[\[(.+?)\]\]/g, '＿＿＿＿');
-const stem = t => (t.match(/\[\[(.+?)\]\]/) || [])[1];
+const CHO = 'ㄱㄲㄴㄷㄸㄹㅁㅂㅃㅅㅆㅇㅈㅉㅊㅋㅌㅍㅎ';
+const chosung = s => [...s].map(c => { const k = c.charCodeAt(0) - 0xAC00; return k >= 0 && k < 11172 ? CHO[k / 588 | 0] : c; }).join('');
 const setNav = k => document.querySelectorAll('[data-nav]').forEach(a => a.classList.toggle('on', a.dataset.nav === k));
+const hj = w => w.h ? `<span class="qh">${w.h}</span>` : '';
 
-/* ── 퀴즈 문항 ── */
-function distract(word, n = 3) {
-  const same = WORDS.filter(x => x.id !== word.id && x.lv === word.lv);
-  const pool = shuffle(same).slice(0, n);
-  return pool;
-}
-function makeQ(word, kind) {
-  const wrong = distract(word);
-  const opts = shuffle([word, ...wrong]).map(x => x.w);
-  if (kind === 'blank') {
-    const sent = shuffle(word.s)[0];
-    return { id: word.id, kind: '문장 속 빈칸', text: blankText(sent[0]), opts, ans: word.w, fb: sent[0], word };
+/* ── 퀴즈 유형 ── */
+const KINDS = [
+  ['mix', '종합', '모든 유형을 섞어서'],
+  ['meaning', '뜻 → 단어', '뜻을 보고 단어 고르기'],
+  ['word2mean', '단어 → 뜻', '단어의 알맞은 뜻 고르기'],
+  ['blank', '문장 빈칸', '문장에 어울리는 단어'],
+  ['sensemean', '예문 속 뜻', '문장 속 단어의 뜻'],
+  ['colloc', '어울리는 말', '짝이 되는 표현 완성'],
+  ['hanja', '한자 풀이', '한자 풀이로 단어 찾기'],
+  ['hanjaeum', '한자 훈음', '한자의 훈과 음 맞히기'],
+  ['syn', '비슷한 말', '유의어 찾기'],
+  ['ant', '반대말', '반의어 찾기'],
+  ['chosung', '초성 퀴즈', '직접 입력해서 맞히기'],
+  ['ox', 'O / X', '설명이 맞는지 판단'],
+  ['match', '짝 맞추기', '단어와 뜻 연결하기']
+];
+const KIND_LABEL = Object.fromEntries(KINDS.map(k => [k[0], k[1]]));
+const applicable = (w, kind) => {
+  if (kind === 'syn') return w.syn.length > 0;
+  if (kind === 'ant') return w.ant.length > 0;
+  if (kind === 'hanja' || kind === 'hanjaeum') return w.parts.length > 0;
+  if (kind === 'colloc') return w.colloc.some(c => c.includes(w.w));
+  return true;
+};
+const sameLv = w => WORDS.filter(x => x.id !== w.id && x.lv === w.lv);
+const pickWords = (w, n = 3) => shuffle(sameLv(w)).slice(0, n);
+const choose = (ans, pool, n = 3) => shuffle([ans, ...shuffle(uniq(pool.filter(x => x !== ans))).slice(0, n)]);
+const expl = w => `<b>${w.w}</b>${w.h ? ` (${w.h})` : ''} — ${w.mean}`;
+
+function makeQ(w, kind) {
+  if (!applicable(w, kind)) kind = 'meaning';
+  const base = { id: w.id, word: w, type: 'choice', kindKey: kind, kind: KIND_LABEL[kind] };
+  const wordOpts = () => choose(w.w, pickWords(w).map(x => x.w));
+  switch (kind) {
+    case 'word2mean':
+      return { ...base, text: `‘${w.w}’${hj(w)}의 뜻으로 알맞은 것은?`, opts: choose(w.mean, pickWords(w, 3).map(x => x.mean)), ans: w.mean, long: true, exp: expl(w) };
+    case 'blank': {
+      const s = rnd(w.s);
+      return { ...base, text: blankText(s[0]), opts: wordOpts(), ans: w.w, exp: sentHTML(s[0]) };
+    }
+    case 'sensemean': {
+      const s = rnd(w.s);
+      return { ...base, text: `${sentHTML(s[0])}<br><span class="qsub">여기서 밑줄 친 말의 뜻은?</span>`, opts: choose(w.mean, pickWords(w, 3).map(x => x.mean)), ans: w.mean, long: true, exp: expl(w) };
+    }
+    case 'colloc': {
+      const c = rnd(w.colloc.filter(c => c.includes(w.w)));
+      return { ...base, text: `빈칸에 알맞은 단어는?<br><span class="qbig">${c.replace(w.w, '＿＿＿＿')}</span>`, opts: wordOpts(), ans: w.w, exp: `<b>${c}</b> — ${w.mean}` };
+    }
+    case 'hanja':
+      return { ...base, text: w.parts.map(p => `<span class="qc">${p[0]}</span>(${p[1]} ${p[2]})`).join(' + ') + ' 의 풀이를 가진 단어는?', opts: wordOpts(), ans: w.w, exp: expl(w) };
+    case 'hanjaeum': {
+      const p = rnd(w.parts), key = p[1] + ' ' + p[2];
+      const pool = uniq(WORDS.flatMap(x => x.parts.map(q => q[1] + ' ' + q[2])));
+      return { ...base, text: `‘${w.h}’에서 <span class="qc">${p[0]}</span>의 훈과 음은?`, opts: choose(key, pool), ans: key, exp: `<b>${p[0]}</b> = ${key} — ${expl(w)}` };
+    }
+    case 'syn': {
+      const ans = rnd(w.syn);
+      const ban = new Set([w.w, ...w.syn, ...w.ant]);
+      const pool = WORDS.flatMap(x => x.id === w.id ? [] : [x.w, ...x.syn]).filter(x => !ban.has(x));
+      return { ...base, text: `‘${w.w}’${hj(w)}와(과) 뜻이 비슷한 말은?`, opts: choose(ans, pool), ans, exp: `${expl(w)}<br>비슷한 말: ${w.syn.join(', ')}` };
+    }
+    case 'ant': {
+      const ans = rnd(w.ant);
+      const ban = new Set([w.w, ...w.syn, ...w.ant]);
+      const pool = WORDS.flatMap(x => x.id === w.id ? [] : [...x.ant, ...x.syn]).filter(x => !ban.has(x));
+      return { ...base, text: `‘${w.w}’${hj(w)}와(과) 뜻이 반대되는 말은?`, opts: choose(ans, pool), ans, exp: `${expl(w)}<br>반대말: ${w.ant.join(', ')}` };
+    }
+    case 'chosung':
+      return { ...base, type: 'type', text: `뜻을 읽고 단어를 입력하세요.<br><span class="qbig">${chosung(w.w)}</span><span class="qsub">${w.mean}</span>`, ans: w.w, exp: expl(w) };
+    case 'ox': {
+      const yes = Math.random() < .5, o = rnd(sameLv(w));
+      return { ...base, text: `‘${w.w}’${hj(w)}은(는) “${yes ? w.mean : o.mean}” 라는 뜻이다.`, opts: ['맞다', '틀리다'], ans: yes ? '맞다' : '틀리다', exp: expl(w) };
+    }
+    case 'match': {
+      const set = [w, ...pickWords(w, 3)];
+      return { ...base, type: 'match', text: '단어와 뜻을 짝지어 보세요.', set, ans: '', exp: set.map(expl).join('<br>') };
+    }
+    default:
+      return { ...base, kindKey: 'meaning', kind: KIND_LABEL.meaning, text: `“${w.mean}”<br><span class="qsub">이라는 뜻의 단어는?</span>`, opts: wordOpts(), ans: w.w, exp: expl(w) };
   }
-  if (kind === 'hanja' && word.parts.length) {
-    return { id: word.id, kind: '한자 풀이로 단어 찾기', text: word.parts.map(p => `${p[0]}(${p[1]} ${p[2]})`).join(' + ') + ' 의 풀이를 가진 단어는?', opts, ans: word.w, fb: word.easy, word };
-  }
-  return { id: word.id, kind: '뜻으로 단어 찾기', text: `“${word.mean}” 이라는 뜻의 단어는?`, opts, ans: word.w, fb: word.easy, word };
 }
+
+/* ── 퀴즈 진행 ── */
 function runQuiz(el, qs, onEnd, meta = {}) {
   let i = 0, ok = 0; const wrongIds = [];
   const show = () => {
@@ -65,21 +134,54 @@ function runQuiz(el, qs, onEnd, meta = {}) {
     el.innerHTML = `<div class="qwrap"><div class="qmeta"><span>${meta.title || '퀴즈'}</span><span>${i + 1} / ${qs.length}</span></div>
       <div class="bar"><i style="width:${i / qs.length * 100}%"></i></div>
       <div class="qbox"><div class="qkind">${q.kind}</div><p class="qtext">${q.text}</p>
-      <div class="opts">${q.opts.map(o => `<button class="opt" data-o="${o}">${o}</button>`).join('')}</div>
-      <div class="fb" id="fb"></div></div></div>`;
-    el.querySelectorAll('.opt').forEach(b => b.onclick = () => {
-      const right = b.dataset.o === q.ans;
-      el.querySelector('.opts').classList.add('lock');
-      el.querySelectorAll('.opt').forEach(x => { if (x.dataset.o === q.ans) x.classList.add('ok'); });
-      if (!right) { b.classList.add('no'); addWrong(q.id); wrongIds.push(q.id); } else { ok++; clearWrong(q.id); }
-      const fb = el.querySelector('#fb');
-      fb.innerHTML = `<b>${right ? '정답입니다.' : `정답은 ‘${q.ans}’입니다.`}</b> ${sentHTMLFb(q)}
-        <div style="margin-top:14px"><button class="btn" id="nx">${i + 1 < qs.length ? '다음' : '결과 보기'} ${ico('next')}</button></div>`;
-      el.querySelector('#nx').onclick = () => { i++; i < qs.length ? show() : end(); };
-    });
+      <div id="qa"></div><div class="fb" id="fb"></div></div></div>`;
+    const qa = el.querySelector('#qa');
+    const resolve = (right, msg, wrongList = [q.id]) => {
+      if (right) { ok++; q.type === 'match' ? q.set.forEach(x => clearWrong(x.id)) : clearWrong(q.id); }
+      else wrongList.forEach(id => { addWrong(id); wrongIds.push(id); });
+      el.querySelector('#fb').innerHTML = `<b>${right ? '정답입니다.' : msg}</b><div class="exp">${q.exp}</div>
+        <div style="margin-top:16px"><button class="btn" id="nx">${i + 1 < qs.length ? '다음' : '결과 보기'} ${ico('next')}</button></div>`;
+      el.querySelector('#nx').onclick = () => { i++; i < qs.length ? show() : onEnd(ok, qs.length, uniq(wrongIds)); };
+      el.querySelector('#nx').focus();
+    };
+    if (q.type === 'choice') {
+      qa.innerHTML = `<div class="opts ${q.long ? 'long' : ''}">${q.opts.map((o, k) => `<button class="opt" data-k="${k}">${o}</button>`).join('')}</div>`;
+      qa.querySelectorAll('.opt').forEach(b => b.onclick = () => {
+        const right = q.opts[b.dataset.k] === q.ans;
+        qa.querySelector('.opts').classList.add('lock');
+        qa.querySelectorAll('.opt').forEach(x => { if (q.opts[x.dataset.k] === q.ans) x.classList.add('ok'); });
+        if (!right) b.classList.add('no');
+        resolve(right, `정답은 ‘${q.ans}’입니다.`);
+      });
+    } else if (q.type === 'type') {
+      qa.innerHTML = `<form class="tform" autocomplete="off"><input id="ti" class="tin" placeholder="정답 입력" aria-label="정답 입력"><button class="btn" type="submit">확인</button><button class="btn ghost" type="button" id="skip">모르겠어요</button></form>`;
+      const inp = qa.querySelector('#ti'); inp.focus();
+      const lock = () => { inp.disabled = true; qa.querySelectorAll('button').forEach(b => b.disabled = true); };
+      qa.querySelector('form').onsubmit = e => {
+        e.preventDefault();
+        const v = inp.value.replace(/\s/g, ''); if (!v) return;
+        const right = v === q.ans; lock(); inp.classList.add(right ? 'okin' : 'noin');
+        resolve(right, `정답은 ‘${q.ans}’입니다.`);
+      };
+      qa.querySelector('#skip').onclick = () => { lock(); resolve(false, `정답은 ‘${q.ans}’입니다.`); };
+    } else if (q.type === 'match') {
+      const L = shuffle(q.set), R = shuffle(q.set);
+      let sel = null, left = q.set.length; const bad = new Set();
+      qa.innerHTML = `<div class="match"><div class="mcol">${L.map(x => `<button class="mbtn" data-s="L" data-id="${x.id}">${x.w}</button>`).join('')}</div>
+        <div class="mcol">${R.map(x => `<button class="mbtn sm" data-s="R" data-id="${x.id}">${x.mean}</button>`).join('')}</div></div>`;
+      qa.querySelectorAll('.mbtn').forEach(b => b.onclick = () => {
+        if (b.classList.contains('ok')) return;
+        if (b.dataset.s === 'L') { qa.querySelectorAll('[data-s="L"]').forEach(x => x.classList.remove('sel')); sel = b; b.classList.add('sel'); return; }
+        if (!sel) return;
+        if (sel.dataset.id === b.dataset.id) {
+          sel.classList.remove('sel'); sel.classList.add('ok'); b.classList.add('ok'); sel = null;
+          if (--left === 0) resolve(bad.size === 0, '몇 개를 잘못 연결했어요.', [...bad]);
+        } else {
+          bad.add(sel.dataset.id); b.classList.add('no'); setTimeout(() => b.classList.remove('no'), 500);
+        }
+      });
+    }
   };
-  const sentHTMLFb = q => q.kind.startsWith('문장') ? `<br>${sentHTML(q.fb)}` : `<br>${q.word.mean}`;
-  const end = () => onEnd(ok, qs.length, wrongIds);
   show();
 }
 
@@ -172,7 +274,7 @@ function wordView(id, step = 1) {
   const sentList = blank => w.s.map((t, i) => `
     <div class="sent"><span class="no">${i + 1}</span><div class="tx">${sentHTML(t[0], blank ? 'blank' : 'mark')}<div class="ctx">${t[1]}</div></div></div>`).join('');
   const P3 = () => `<div id="qz"></div>`;
-  const go = s => { wordView(id, s); history.replaceState(null, '', '#/word/' + encodeURIComponent(id)); };
+  const go = s => { wordView(id, s); };
   const panel = document.getElementById('panel');
   panel.innerHTML = [P1, P2, P3][step - 1]();
   document.querySelectorAll('#steps button').forEach(b => { b.classList.toggle('on', +b.dataset.s === step); b.onclick = () => go(+b.dataset.s); });
@@ -187,13 +289,14 @@ function wordView(id, step = 1) {
     document.getElementById('sents').onclick = e => { const b = e.target.closest('.blank'); if (b) b.classList.toggle('show'); };
   }
   if (step === 3) {
-    const qs = [makeQ(w, 'meaning'), makeQ(w, 'blank'), makeQ(w, 'blank')];
-    if (w.parts.length) qs.splice(1, 0, makeQ(w, 'hanja'));
+    const kinds = shuffle(['word2mean', 'blank', 'sensemean', 'colloc', 'hanja', 'hanjaeum', 'syn', 'ant', 'chosung', 'ox', 'match'].filter(k => applicable(w, k))).slice(0, 5);
+    const qs = [makeQ(w, 'meaning'), ...kinds.map(k => makeQ(w, k))];
     runQuiz(document.getElementById('qz'), qs, (ok, n) => {
-      if (ok >= Math.ceil(n * .6)) markDone(id);
+      const pass = ok >= Math.ceil(n * .6);
+      if (pass) markDone(id);
       const next = WORDS[(idx + 1) % WORDS.length];
       document.getElementById('qz').innerHTML = `<div class="result"><div class="score">${ok}<span style="font-size:.4em;color:var(--sub)"> / ${n}</span></div>
-        <p>${ok >= Math.ceil(n * .6) ? `‘${w.w}’을(를) 학습 완료로 기록했어요.` : '조금 더 익힌 뒤 다시 도전해 보세요.'}</p>
+        <p>${pass ? `‘${w.w}’을(를) 학습 완료로 기록했어요.` : '조금 더 익힌 뒤 다시 도전해 보세요.'}</p>
         <div style="display:flex;gap:10px;justify-content:center;flex-wrap:wrap"><button class="btn ghost" data-go="1">${ico('retry')} 다시 학습</button>
         <a class="btn" href="#/word/${encodeURIComponent(next.id)}">다음 단어 ‘${next.w}’ ${ico('next')}</a></div></div>`;
       document.querySelectorAll('#qz [data-go]').forEach(b => b.onclick = () => go(+b.dataset.go));
@@ -202,24 +305,45 @@ function wordView(id, step = 1) {
 }
 
 /* ── 종합 퀴즈 ── */
-function quizView() {
+const qopt = { kind: 'mix', scope: '전체', n: 10 };
+function quizView(msg = '') {
   setNav('quiz');
-  const start = (lv) => {
-    const pool = shuffle(WORDS.filter(x => lv === '전체' || x.lv === lv)).slice(0, 10);
-    const kinds = ['meaning', 'blank', 'hanja'];
-    const qs = pool.map((x, i) => makeQ(x, kinds[i % 3]));
-    runQuiz($app, qs, (ok, n, wr) => {
-      $app.innerHTML = `<div class="qwrap result"><p class="eyebrow">Result</p><div class="score">${ok}<span style="font-size:.4em;color:var(--sub)"> / ${n}</span></div>
-        <p>${wr.length ? `틀린 ${wr.length}개는 오답 노트에 담았어요.` : '모두 맞혔어요. 훌륭합니다.'}</p>
-        <div style="display:flex;gap:10px;justify-content:center;flex-wrap:wrap"><button class="btn" id="again">${ico('retry')} 한 번 더</button><a class="btn ghost" href="#/review">오답 노트</a></div></div>`;
-      document.getElementById('again').onclick = quizView;
-    }, { title: `종합 퀴즈 · ${lv}` });
-  };
-  $app.innerHTML = `<div class="qwrap"><p class="eyebrow">Quiz</p><h1 style="font-size:34px;margin-bottom:10px">종합 퀴즈</h1>
-    <p class="hint" style="font-size:15px">전체 어휘에서 10문제를 무작위로 냅니다. 뜻 찾기, 한자 풀이, 문장 빈칸이 섞여 나와요.</p>
-    <div style="display:flex;gap:10px;flex-wrap:wrap;margin-top:20px">
-      <button class="btn" data-lv="전체">${ico('quiz')} 전체</button><button class="btn ghost" data-lv="중급">중급만</button><button class="btn ghost" data-lv="고급">고급만</button></div></div>`;
-  $app.querySelectorAll('[data-lv]').forEach(b => b.onclick = () => start(b.dataset.lv));
+  const seg = (key, arr) => `<div class="seg" data-k="${key}">${arr.map(v => `<button class="${qopt[key] === v ? 'on' : ''}" data-v="${v}">${v}${key === 'n' ? '문제' : ''}</button>`).join('')}</div>`;
+  $app.innerHTML = `<div class="qhub"><p class="eyebrow">Quiz</p><h1 style="font-size:clamp(28px,4vw,38px);margin-bottom:10px">퀴즈</h1>
+    <p class="hint" style="font-size:15px">13가지 유형 중에서 골라 풀거나, 종합으로 모든 유형을 섞어 풀어 보세요. 틀린 문제는 오답 노트에 쌓여요.</p>
+    <div class="kinds">${KINDS.map(k => `<button class="kind ${qopt.kind === k[0] ? 'on' : ''}" data-k="${k[0]}"><b>${k[1]}</b><span>${k[2]}</span></button>`).join('')}</div>
+    <div class="tools" style="margin-top:22px">${seg('scope', ['전체', '중급', '고급', '오답만'])}${seg('n', [10, 20, 30])}
+      <span class="spacer"></span><button class="btn" id="start">${ico('play')} 시작</button></div>
+    <p class="hint" id="qm" style="color:var(--bad)">${msg}</p></div>`;
+  $app.querySelectorAll('.kind').forEach(b => b.onclick = () => { qopt.kind = b.dataset.k; quizView(); });
+  $app.querySelectorAll('.seg').forEach(sg => sg.onclick = e => {
+    const b = e.target.closest('button'); if (!b) return;
+    qopt[sg.dataset.k] = sg.dataset.k === 'n' ? parseInt(b.dataset.v) : b.dataset.v; quizView();
+  });
+  document.getElementById('start').onclick = startQuiz;
+}
+function startQuiz() {
+  const s = S();
+  let pool = WORDS.filter(x => qopt.scope === '전체' || (qopt.scope === '오답만' ? s.wrong[x.id] : x.lv === qopt.scope));
+  const kinds = qopt.kind === 'mix' ? KINDS.slice(1).map(k => k[0]) : [qopt.kind];
+  if (qopt.kind !== 'mix') pool = pool.filter(x => applicable(x, qopt.kind));
+  if (pool.length < 4) return quizView(qopt.scope === '오답만' ? '오답 노트에 단어가 4개 이상 쌓이면 풀 수 있어요.' : '조건에 맞는 단어가 부족해요.');
+  const picked = shuffle(pool).slice(0, qopt.n);
+  let order = [];
+  const qs = picked.map(w => {
+    if (!order.length) order = shuffle(kinds);
+    let k = order.pop();
+    if (!applicable(w, k)) k = rnd(kinds.filter(x => applicable(w, x)));
+    return makeQ(w, k);
+  });
+  runQuiz($app, qs, (ok, n, wr) => {
+    $app.innerHTML = `<div class="qwrap result"><p class="eyebrow">Result</p><div class="score">${ok}<span style="font-size:.4em;color:var(--sub)"> / ${n}</span></div>
+      <p>${wr.length ? `틀린 단어 ${wr.length}개는 오답 노트에 담았어요.` : '모두 맞혔어요. 훌륭합니다.'}</p>
+      <div style="display:flex;gap:10px;justify-content:center;flex-wrap:wrap"><button class="btn" id="again">${ico('retry')} 한 번 더</button>
+      <button class="btn ghost" id="cfg">유형 바꾸기</button><a class="btn ghost" href="#/review">오답 노트</a></div></div>`;
+    document.getElementById('again').onclick = startQuiz;
+    document.getElementById('cfg').onclick = () => quizView();
+  }, { title: `${KIND_LABEL[qopt.kind]} 퀴즈 · ${qopt.scope}` });
 }
 
 /* ── 오답 노트 ── */
@@ -228,8 +352,11 @@ function reviewView() {
   const s = S();
   const ids = Object.keys(s.wrong).filter(id => BY[id]);
   $app.innerHTML = `<p class="eyebrow">Review</p><h1 style="font-size:34px;margin-bottom:22px">오답 노트</h1>` +
-    (ids.length ? ids.map(id => { const w = BY[id]; return `<div class="rev"><div><div class="w">${w.w} <span class="h" style="font:400 14px var(--serif);color:var(--sub)">${w.h}</span></div><div class="m">${w.mean}</div></div>
-      <a class="btn ghost" href="#/word/${encodeURIComponent(id)}">다시 학습</a></div>`; }).join('') : '<p class="empty">틀린 문제가 아직 없어요. 퀴즈를 풀어 보세요.</p>');
+    (ids.length ? ids.map(id => { const w = BY[id]; return `<div class="rev"><div><div class="w">${w.w} <span class="h" style="font:400 14px var(--serif);color:var(--accent)">${w.h}</span></div><div class="m">${w.mean}</div></div>
+      <a class="btn ghost" href="#/word/${encodeURIComponent(id)}">다시 학습</a></div>`; }).join('') +
+      `<div style="margin-top:20px"><button class="btn" id="rq">${ico('quiz')} 오답만 퀴즈로 풀기</button></div>` : '<p class="empty">틀린 문제가 아직 없어요. 퀴즈를 풀어 보세요.</p>');
+  const rq = document.getElementById('rq');
+  if (rq) rq.onclick = () => { qopt.scope = '오답만'; qopt.kind = 'mix'; location.hash = '#/quiz'; };
 }
 
 /* ── 라우터 ── */
